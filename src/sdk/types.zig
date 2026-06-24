@@ -813,6 +813,130 @@ pub fn packActionSpotDeploySetTradingFeeShare(p: *msgpack.Packer, token: u32, sh
     try p.packStr(share);
 }
 
+// ── EVM Contract Linking (HyperCore <-> HyperEVM) ─────────────
+
+/// Links a HIP-1 spot token to a HyperEVM ERC-20 so the two can be bridged.
+/// `evm_extra_wei_decimals` is the EVM weiDecimals minus the Core weiDecimals
+/// (range [-2, 18]); it can be negative, so it packs as a signed int.
+pub const SpotDeployRequestEvmContract = struct {
+    token: u32,
+    /// The ERC-20 contract address on HyperEVM. Must be lowercase hex ("0x…")
+    /// — the exchange signs over these bytes, so mixed-case breaks the link.
+    address: []const u8,
+    evm_extra_wei_decimals: i8,
+};
+
+/// requestEvmContract is nested in spotDeploy (like registerToken2), sent by
+/// the Core spot deployer.
+pub fn packActionSpotDeployRequestEvmContract(p: *msgpack.Packer, r: SpotDeployRequestEvmContract) msgpack.PackError!void {
+    try p.packMapHeader(2);
+    try p.packStr("type");
+    try p.packStr("spotDeploy");
+    try p.packStr("requestEvmContract");
+    try p.packMapHeader(3);
+    try p.packStr("token");
+    try p.packUint(@intCast(r.token));
+    try p.packStr("address");
+    try p.packStr(r.address);
+    try p.packStr("evmExtraWeiDecimals");
+    try p.packInt(@intCast(r.evm_extra_wei_decimals));
+}
+
+/// Proof of control over the EVM contract, used to finalize a link:
+/// `create` carries the nonce that deployed the contract (EOA case); the
+/// storage-slot variants cover contract-deployed ERC-20s (e.g. create2).
+pub const FinalizeEvmContractInput = union(enum) {
+    create: u64,
+    first_storage_slot,
+    custom_storage_slot,
+};
+
+/// finalizeEvmContract is a TOP-LEVEL action (not nested in spotDeploy),
+/// sent by the EVM contract's deployer to confirm the link.
+pub fn packActionFinalizeEvmContract(p: *msgpack.Packer, token: u32, input: FinalizeEvmContractInput) msgpack.PackError!void {
+    try p.packMapHeader(3);
+    try p.packStr("type");
+    try p.packStr("finalizeEvmContract");
+    try p.packStr("token");
+    try p.packUint(@intCast(token));
+    try p.packStr("input");
+    switch (input) {
+        .create => |create_nonce| {
+            try p.packMapHeader(1);
+            try p.packStr("create");
+            try p.packMapHeader(1);
+            try p.packStr("nonce");
+            try p.packUint(create_nonce);
+        },
+        .first_storage_slot => try p.packStr("firstStorageSlot"),
+        .custom_storage_slot => try p.packStr("customStorageSlot"),
+    }
+}
+
+/// The Core system (asset-bridge) address for a spot token index: first byte
+/// 0x20, remaining bytes zero except the token index big-endian in the tail.
+/// This is where the full supply is minted to back HyperCore <-> HyperEVM
+/// transfers. Writes lowercase "0x…" into `buf` and returns the slice.
+pub fn systemAddressHex(token_index: u32, buf: *[42]u8) []const u8 {
+    var addr = [_]u8{0} ** 20;
+    addr[0] = 0x20;
+    addr[16] = @intCast((token_index >> 24) & 0xff);
+    addr[17] = @intCast((token_index >> 16) & 0xff);
+    addr[18] = @intCast((token_index >> 8) & 0xff);
+    addr[19] = @intCast(token_index & 0xff);
+    const hex = "0123456789abcdef";
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (addr, 0..) |b, i| {
+        buf[2 + i * 2] = hex[b >> 4];
+        buf[2 + i * 2 + 1] = hex[b & 0x0f];
+    }
+    return buf[0..42];
+}
+
+test "systemAddressHex derives the Core asset-bridge address" {
+    var buf: [42]u8 = undefined;
+    // Doc example: token index 200 -> 0x20…c8
+    try std.testing.expectEqualStrings("0x20000000000000000000000000000000000000c8", systemAddressHex(200, &buf));
+    // PURR (index 1)
+    try std.testing.expectEqualStrings("0x2000000000000000000000000000000000000001", systemAddressHex(1, &buf));
+    // XD (index 2195 = 0x893)
+    try std.testing.expectEqualStrings("0x2000000000000000000000000000000000000893", systemAddressHex(2195, &buf));
+}
+
+test "requestEvmContract packs nested with signed evmExtraWeiDecimals" {
+    var buf: [256]u8 = undefined;
+    var p = msgpack.Packer.init(&buf);
+    try packActionSpotDeployRequestEvmContract(&p, .{
+        .token = 2195,
+        .address = "0x8cde56336e289c028c8f7cf5c20283ff02272182",
+        .evm_extra_wei_decimals = -2,
+    });
+    const out = p.written();
+    try std.testing.expectEqual(@as(u8, 0x82), out[0]); // outer map(2)
+    // -2 packs as negative fixint 0xfe
+    try std.testing.expect(std.mem.indexOfScalar(u8, out, 0xfe) != null);
+    // address present verbatim (lowercase)
+    try std.testing.expect(std.mem.indexOf(u8, out, "0x8cde56336e289c028c8f7cf5c20283ff02272182") != null);
+}
+
+test "finalizeEvmContract is top-level with variant inputs" {
+    var buf: [128]u8 = undefined;
+    var p = msgpack.Packer.init(&buf);
+    try packActionFinalizeEvmContract(&p, 2195, .first_storage_slot);
+    const s = p.written();
+    try std.testing.expectEqual(@as(u8, 0x83), s[0]); // map(3): type, token, input
+    try std.testing.expect(std.mem.indexOf(u8, s, "finalizeEvmContract") != null);
+    try std.testing.expect(std.mem.indexOf(u8, s, "firstStorageSlot") != null);
+
+    var buf2: [128]u8 = undefined;
+    var p2 = msgpack.Packer.init(&buf2);
+    try packActionFinalizeEvmContract(&p2, 2195, .{ .create = 42 });
+    const c = p2.written();
+    try std.testing.expect(std.mem.indexOf(u8, c, "create") != null);
+    try std.testing.expect(std.mem.indexOf(u8, c, "nonce") != null);
+}
+
 // ── Perp Deploy Actions ───────────────────────────────────────
 
 pub const PerpDeployRegisterAsset = struct {

@@ -1152,6 +1152,40 @@ pub const Client = struct {
         return self.sendSpotDeploy(s, p.written(), json_body, nonce);
     }
 
+    // ── EVM Contract Linking (HyperCore <-> HyperEVM) ─────────────
+
+    /// Request linking a HIP-1 token to a HyperEVM ERC-20 (spotDeploy action,
+    /// sent by the Core spot deployer). `r.address` must be lowercase hex.
+    pub fn spotDeployRequestEvmContract(self: *Client, s: Signer, r: types.SpotDeployRequestEvmContract, nonce: u64) !ExchangeResult {
+        var buf: [256]u8 = undefined;
+        var p = msgpack.Packer.init(&buf);
+        try types.packActionSpotDeployRequestEvmContract(&p, r);
+        var json_buf: [256]u8 = undefined;
+        const json_body = std.fmt.bufPrint(&json_buf,
+            \\{{"type":"spotDeploy","requestEvmContract":{{"token":{d},"address":"{s}","evmExtraWeiDecimals":{d}}}}}
+        , .{ r.token, r.address, r.evm_extra_wei_decimals }) catch return error.BufferOverflow;
+        return self.sendSpotDeploy(s, p.written(), json_body, nonce);
+    }
+
+    /// Finalize an EVM contract link (top-level action, sent by the EVM
+    /// contract's deployer). Signed via the same L1-action path as spotDeploy.
+    pub fn finalizeEvmContract(self: *Client, s: Signer, token: u32, input: types.FinalizeEvmContractInput, nonce: u64) !ExchangeResult {
+        var buf: [256]u8 = undefined;
+        var p = msgpack.Packer.init(&buf);
+        try types.packActionFinalizeEvmContract(&p, token, input);
+        var json_buf: [256]u8 = undefined;
+        var w_storage: std.Io.Writer = .fixed(&json_buf);
+        const w = &w_storage;
+        try w.print("{{\"type\":\"finalizeEvmContract\",\"token\":{d},\"input\":", .{token});
+        switch (input) {
+            .create => |create_nonce| try w.print("{{\"create\":{{\"nonce\":{d}}}}}", .{create_nonce}),
+            .first_storage_slot => try w.writeAll("\"firstStorageSlot\""),
+            .custom_storage_slot => try w.writeAll("\"customStorageSlot\""),
+        }
+        try w.writeAll("}");
+        return self.sendSpotDeploy(s, p.written(), w.buffered(), nonce);
+    }
+
     // ── Perp Deploy ───────────────────────────────────────────────
 
     fn sendPerpDeploy(
