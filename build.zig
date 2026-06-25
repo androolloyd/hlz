@@ -297,6 +297,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "transfer", .desc = "Send USDC to an address" },
         .{ .name = "websocket", .desc = "Subscribe to real-time WebSocket data" },
         .{ .name = "sub_account", .desc = "List and create sub-accounts" },
+        .{ .name = "spot_auction", .desc = "Bid on the HIP-1 spot deploy (ticker) auction" },
     };
     inline for (examples) |ex| {
         const step = b.step("example-" ++ ex.name, ex.desc);
