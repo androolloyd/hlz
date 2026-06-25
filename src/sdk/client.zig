@@ -714,6 +714,16 @@ pub const Client = struct {
         return self.infoRequestDyn(body);
     }
 
+    /// Fetch the Dutch-auction status for spot pair deployments between an
+    /// existing base and existing quote token (separate auction from the
+    /// registerToken2 gas auction — this one runs on registerSpot for
+    /// existing-vs-existing pairs).
+    pub fn spotPairDeployAuctionStatus(self: *Client) !InfoResult {
+        return self.infoRequest(
+            \\{"type":"spotPairDeployAuctionStatus"}
+        );
+    }
+
     // ── Borrow/Lend Info ──────────────────────────────────────────
 
     /// Fetch borrow/lend user state.
