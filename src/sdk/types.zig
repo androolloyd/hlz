@@ -1175,6 +1175,25 @@ test "packActionSpotDeployTokenAction: enableFreezePrivilege" {
     try std.testing.expect(std.mem.indexOf(u8, written, "enableFreezePrivilege") != null);
 }
 
+test "packActionSpotDeployTokenAction: enableQuoteToken variant name" {
+    var buf: [256]u8 = undefined;
+    var p = msgpack.Packer.init(&buf);
+    try packActionSpotDeployTokenAction(&p, "enableQuoteToken", 2195);
+    const written = p.written();
+    try std.testing.expect(std.mem.indexOf(u8, written, "enableQuoteToken") != null);
+    // token index 2195 = 0x893 — packs as uint16 (cd 08 93)
+    try std.testing.expect(std.mem.indexOf(u8, written, &[_]u8{ 0xcd, 0x08, 0x93 }) != null);
+}
+
+test "packActionSpotDeployTokenAction: enableAlignedQuoteToken variant name" {
+    var buf: [256]u8 = undefined;
+    var p = msgpack.Packer.init(&buf);
+    try packActionSpotDeployTokenAction(&p, "enableAlignedQuoteToken", 7);
+    const written = p.written();
+    try std.testing.expect(std.mem.indexOf(u8, written, "enableAlignedQuoteToken") != null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "token") != null);
+}
+
 test "packActionCSignerJailSelf: structure" {
     var buf: [128]u8 = undefined;
     var p = msgpack.Packer.init(&buf);

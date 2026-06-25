@@ -1092,6 +1092,18 @@ pub const Client = struct {
         return self.sendSpotDeploy(s, p.written(), json_body, nonce);
     }
 
+    /// Enable a permissionless quote token — after this, other deployers can
+    /// pair against it in registerSpot.
+    pub fn spotDeployEnableQuoteToken(self: *Client, s: Signer, token: u32, nonce: u64) !ExchangeResult {
+        return self.spotDeployTokenAction(s, "enableQuoteToken", token, nonce);
+    }
+
+    /// Enable an aligned quote token. Requires the extra 800k HYPE stake and
+    /// validator vote off-chain — see docs/hypercore/aligned-quote-assets.md.
+    pub fn spotDeployEnableAlignedQuoteToken(self: *Client, s: Signer, token: u32, nonce: u64) !ExchangeResult {
+        return self.spotDeployTokenAction(s, "enableAlignedQuoteToken", token, nonce);
+    }
+
     pub fn spotDeployUserGenesis(self: *Client, s: Signer, ug: types.SpotDeployUserGenesis, nonce: u64) !ExchangeResult {
         var buf: [4096]u8 = undefined;
         var p = msgpack.Packer.init(&buf);
