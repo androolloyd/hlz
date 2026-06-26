@@ -457,6 +457,17 @@ pub const Dex = struct {
     index: u32 = 0,
 };
 
+/// perpDeployAuctionStatus / spotPairDeployAuctionStatus payload.
+/// currentGas is null between auction windows; endGas is null while an
+/// auction is in progress and the floor hasn't been reached yet.
+pub const DeployAuctionStatus = struct {
+    startTimeSeconds: u64 = 0,
+    durationSeconds: u64 = 0,
+    startGas: []const u8 = "",
+    currentGas: ?[]const u8 = null,
+    endGas: ?[]const u8 = null,
+};
+
 pub const DexInfo = struct {
     name: []const u8 = "",
     fullName: ?[]const u8 = null,

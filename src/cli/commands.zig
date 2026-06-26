@@ -4804,12 +4804,63 @@ pub fn subaccountCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a
 }
 
 pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeployArgs) !void {
-    _ = allocator;
-    _ = config;
     switch (a.action) {
         .help => try printDeployHelp(w),
-        .status => try w.fail("deploy status: not implemented yet"),
+        .status => |st| try deployStatus(allocator, w, config, st),
     }
+}
+
+fn deployStatus(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeployStatusArgs) !void {
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+
+    if (w.format == .json) {
+        var pair_raw = try client.spotPairDeployAuctionStatus();
+        defer pair_raw.deinit();
+        if (a.pair) {
+            try w.jsonRaw(pair_raw.body);
+            return;
+        }
+        var perp_raw = try client.perpDeployAuctionStatus();
+        defer perp_raw.deinit();
+        var jbuf: [2048]u8 = undefined;
+        var wj: std.Io.Writer = .fixed(&jbuf);
+        try wj.writeAll("{\"perp\":");
+        try wj.writeAll(perp_raw.body);
+        try wj.writeAll(",\"spotPair\":");
+        try wj.writeAll(pair_raw.body);
+        try wj.writeAll("}");
+        try w.jsonRaw(wj.buffered());
+        return;
+    }
+
+    var pair = try client.getSpotPairDeployAuctionStatus();
+    defer pair.deinit();
+
+    try w.heading("DEPLOY AUCTIONS");
+    if (!a.pair) {
+        var perp = try client.getPerpDeployAuctionStatus();
+        defer perp.deinit();
+        try renderAuctionRow(w, "perp", perp.value);
+    }
+    try renderAuctionRow(w, "spot-pair", pair.value);
+}
+
+fn renderAuctionRow(w: *Writer, label: []const u8, s: response.DeployAuctionStatus) !void {
+    const start_gas = if (s.startGas.len == 0) "-" else s.startGas;
+    const cur_gas: []const u8 = s.currentGas orelse "idle";
+    const end_gas: []const u8 = s.endGas orelse "-";
+    const now_s = @divFloor(hlz.runtime.nonceMs(), 1000);
+    const elapsed = if (now_s > s.startTimeSeconds) now_s - s.startTimeSeconds else 0;
+    const remaining = if (s.durationSeconds > elapsed) s.durationSeconds - elapsed else 0;
+    try w.print("  {s:<10}  start={s} HYPE  current={s}  floor={s}  elapsed={d}m  remaining={d}m\n", .{
+        label,
+        start_gas,
+        cur_gas,
+        end_gas,
+        elapsed / 60,
+        remaining / 60,
+    });
 }
 
 fn printDeployHelp(w: *Writer) !void {

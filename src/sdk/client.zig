@@ -1674,6 +1674,18 @@ pub const Client = struct {
         return self.infoTyped(R.Referral, body);
     }
 
+    pub fn getPerpDeployAuctionStatus(self: *Client) !Parsed(R.DeployAuctionStatus) {
+        return self.infoTyped(R.DeployAuctionStatus,
+            \\{"type":"perpDeployAuctionStatus"}
+        );
+    }
+
+    pub fn getSpotPairDeployAuctionStatus(self: *Client) !Parsed(R.DeployAuctionStatus) {
+        return self.infoTyped(R.DeployAuctionStatus,
+            \\{"type":"spotPairDeployAuctionStatus"}
+        );
+    }
+
     pub fn getActiveAssetData(self: *Client, user: []const u8, coin: []const u8) !Parsed(R.ActiveAssetData) {
         var buf: [256]u8 = undefined;
         const body = std.fmt.bufPrint(&buf,
