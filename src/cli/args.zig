@@ -44,9 +44,25 @@ pub const Command = union(enum) {
     approve_builder: ApproveBuilderArgs,
     subaccount: SubAccountArgs,
     account: AccountArgs,
+    deploy: DeployArgs,
     config: void,
     help: HelpArgs,
     version: void,
+};
+
+pub const DeployArgs = struct {
+    action: DeployAction = .help,
+};
+
+/// Nested deploy subcommands. Individual variants get filled in one at a time
+/// as their handlers land; `.help` renders the tree.
+pub const DeployAction = union(enum) {
+    help,
+    status: DeployStatusArgs,
+};
+
+pub const DeployStatusArgs = struct {
+    pair: bool = false,
 };
 
 pub const HelpTopic = enum {
@@ -88,6 +104,7 @@ pub const HelpTopic = enum {
     approve_builder,
     subaccount,
     account,
+    deploy,
     config,
     help,
     version,
@@ -502,6 +519,8 @@ pub fn parse(allocator: std.mem.Allocator, args: std.process.Args) ParseError!Pa
         .{ .subaccount = parseSubAccount(rest) }
     else if (std.mem.eql(u8, cmd_str, "account"))
         .{ .account = parseAccount(rest) }
+    else if (std.mem.eql(u8, cmd_str, "deploy"))
+        .{ .deploy = parseDeploy(rest) }
     else if (std.mem.eql(u8, cmd_str, "config"))
         .{ .config = {} }
     else if (std.mem.eql(u8, cmd_str, "help") or std.mem.eql(u8, cmd_str, "--help") or std.mem.eql(u8, cmd_str, "-h"))
@@ -1063,6 +1082,23 @@ fn parseAccount(args: []const []const u8) AccountArgs {
         .mode = mode,
         .invalid_mode = if (mode == null) args[0] else null,
     };
+}
+
+// hlz deploy status [--pair]
+// hlz deploy spot <subcmd>  ← subcommands land in follow-up commits
+fn parseDeploy(args: []const []const u8) DeployArgs {
+    if (args.len == 0) return .{};
+    const first = args[0];
+    const rest = args[1..];
+
+    if (std.mem.eql(u8, first, "status")) {
+        var st = DeployStatusArgs{};
+        for (rest) |a| {
+            if (std.mem.eql(u8, a, "--pair")) st.pair = true;
+        }
+        return .{ .action = .{ .status = st } };
+    }
+    return .{};
 }
 
 fn parseApproveAgent(args: []const []const u8) ApproveAgentArgs {

@@ -4802,3 +4802,43 @@ pub fn subaccountCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a
         },
     }
 }
+
+pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeployArgs) !void {
+    _ = allocator;
+    _ = config;
+    switch (a.action) {
+        .help => try printDeployHelp(w),
+        .status => try w.fail("deploy status: not implemented yet"),
+    }
+}
+
+fn printDeployHelp(w: *Writer) !void {
+    try w.styled(Style.bold_white, "hlz deploy — HIP-1 spot token deployment\n\n");
+    try w.print(
+        \\Read
+        \\  hlz deploy status [--pair]            Show live auction gas prices
+        \\
+        \\Spot token flow
+        \\  hlz deploy spot register <NAME>       Bid HIP-1 gas auction, mint ticker
+        \\  hlz deploy spot user-genesis <TOKEN>  Allocate wei to users / existing holders
+        \\  hlz deploy spot genesis <TOKEN>       Fix max supply (checksum step)
+        \\  hlz deploy spot register-pair <B> <Q> Pair base against existing quote
+        \\  hlz deploy spot hyperliquidity <SPOT> Seed HIP-2 book
+        \\
+        \\Admin
+        \\  hlz deploy spot fee-share <TOKEN> <PCT>
+        \\  hlz deploy spot freeze <TOKEN> <USER> [--unfreeze]
+        \\  hlz deploy spot token-action <TOKEN> <VARIANT>
+        \\
+        \\EVM linking
+        \\  hlz deploy spot request-evm <TOKEN> <ADDR> --extra-wei-dec <N>
+        \\  hlz deploy spot finalize-evm <TOKEN> <--create-nonce N | --first-slot | --custom-slot>
+        \\
+        \\Quote-token toggles
+        \\  hlz deploy spot enable-quote <TOKEN>
+        \\  hlz deploy spot enable-aligned <TOKEN>
+        \\
+        \\Subcommands not marked above are wired up in follow-up commits.
+        \\
+    , .{});
+}

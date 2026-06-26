@@ -114,6 +114,7 @@ pub fn main(init: std.process.Init) !void {
         .approve_builder => |a| commands.approveBuilderCmd(allocator, &w, config, a) catch |e| return exit(&w, "approve-builder", e),
         .subaccount => |a| commands.subaccountCmd(allocator, &w, config, a) catch |e| return exit(&w, "subaccount", e),
         .account => |a| commands.accountCmd(allocator, &w, config, a) catch |e| return exit(&w, "account", e),
+        .deploy => |a| commands.deployCmd(allocator, &w, config, a) catch |e| return exit(&w, "deploy", e),
         .trade => |a| trade_mod.run(allocator, .{
             .chain = config.chain,
             .key_hex = config.key_hex,
@@ -980,6 +981,19 @@ fn printCommandHelp(w: *output_mod.Writer, topic: args_mod.HelpTopic) !void {
             \\
         , null, null,
             \\  hlz version
+            \\
+        ),
+        .deploy => try printCommandDoc(w, "deploy", "HIP-1 spot token deployment (5-step flow + admin).",
+            \\  hlz deploy status [--pair]
+            \\  hlz deploy spot <register|user-genesis|genesis|register-pair|hyperliquidity|...>
+            \\
+        , null,
+            \\  Run `hlz deploy` with no arguments to see the full subcommand tree.
+            \\  The 5-step flow is:  register -> user-genesis -> genesis -> register-pair -> hyperliquidity.
+            \\
+        ,
+            \\  hlz deploy status
+            \\  hlz deploy status --pair
             \\
         ),
     }
