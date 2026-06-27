@@ -696,10 +696,15 @@ pub fn packActionSpotDeployGenesis(p: *msgpack.Packer, g: SpotDeployGenesis) msg
     }
 }
 
+pub const SpotDeployExistingTokenWei = struct {
+    token: u32,
+    wei: []const u8,
+};
+
 pub const SpotDeployUserGenesis = struct {
     token: u32,
     user_and_wei: []const [2][]const u8, // [[addr, wei], ...]
-    existing_token_and_wei: []const struct { token: u32, wei: []const u8 },
+    existing_token_and_wei: []const SpotDeployExistingTokenWei,
 };
 
 /// Pack a spotDeploy userGenesis action.

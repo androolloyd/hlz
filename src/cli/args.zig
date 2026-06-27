@@ -60,6 +60,7 @@ pub const DeployAction = union(enum) {
     help,
     status: DeployStatusArgs,
     spot_register: DeploySpotRegisterArgs,
+    spot_user_genesis: DeploySpotUserGenesisArgs,
 };
 
 pub const DeployStatusArgs = struct {
@@ -73,6 +74,17 @@ pub const DeploySpotRegisterArgs = struct {
     /// maxGas in HYPE wei (8 decimals) — the CLI accepts `--max-gas` in whole HYPE and multiplies.
     max_gas_hype: u64,
     full_name: ?[]const u8 = null,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotUserGenesisArgs = struct {
+    token: u32,
+    /// Raw slots referencing --alloc addr:wei entries.
+    user_allocs: [64]?[]const u8 = .{null} ** 64,
+    user_count: usize = 0,
+    /// Raw slots referencing --from-token tid:wei entries.
+    existing_allocs: [16]?[]const u8 = .{null} ** 16,
+    existing_count: usize = 0,
     dry_run: bool = false,
 };
 
@@ -1146,6 +1158,28 @@ fn parseDeploySpot(args: []const []const u8) DeployArgs {
             }
         }
         return .{ .action = .{ .spot_register = r } };
+    }
+    if (std.mem.eql(u8, sub, "user-genesis")) {
+        if (rest.len < 1) return .{};
+        var g = DeploySpotUserGenesisArgs{
+            .token = std.fmt.parseInt(u32, rest[0], 10) catch return .{},
+        };
+        var i: usize = 1;
+        while (i < rest.len) : (i += 1) {
+            const a = rest[i];
+            if (std.mem.eql(u8, a, "--alloc") and i + 1 < rest.len and g.user_count < g.user_allocs.len) {
+                i += 1;
+                g.user_allocs[g.user_count] = rest[i];
+                g.user_count += 1;
+            } else if (std.mem.eql(u8, a, "--from-token") and i + 1 < rest.len and g.existing_count < g.existing_allocs.len) {
+                i += 1;
+                g.existing_allocs[g.existing_count] = rest[i];
+                g.existing_count += 1;
+            } else if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) {
+                g.dry_run = true;
+            }
+        }
+        return .{ .action = .{ .spot_user_genesis = g } };
     }
     return .{};
 }

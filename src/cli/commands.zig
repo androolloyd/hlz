@@ -4808,6 +4808,75 @@ pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
         .help => try printDeployHelp(w),
         .status => |st| try deployStatus(allocator, w, config, st),
         .spot_register => |r| try deploySpotRegister(allocator, w, config, r),
+        .spot_user_genesis => |g| try deploySpotUserGenesis(allocator, w, config, g),
+    }
+}
+
+/// Split "addr:wei" or "tid:wei" — returns error.InvalidFlag if the colon is missing.
+fn splitPair(entry: []const u8) ![2][]const u8 {
+    const colon = std.mem.indexOfScalar(u8, entry, ':') orelse return error.InvalidFlag;
+    return .{ entry[0..colon], entry[colon + 1 ..] };
+}
+
+fn deploySpotUserGenesis(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotUserGenesisArgs) !void {
+    if (a.user_count == 0 and a.existing_count == 0) {
+        return failFmt(w, "need at least one --alloc addr:wei or --from-token tid:wei", .{});
+    }
+
+    var user_pairs: [64][2][]const u8 = undefined;
+    for (0..a.user_count) |i| {
+        const raw = a.user_allocs[i] orelse return failFmt(w, "--alloc slot {d} empty", .{i});
+        const parts = splitPair(raw) catch return failFmt(w, "--alloc must be addr:wei (got '{s}')", .{raw});
+        user_pairs[i] = parts;
+    }
+
+    var existing_pairs: [16]hlz.hypercore.types.SpotDeployExistingTokenWei = undefined;
+    for (0..a.existing_count) |i| {
+        const raw = a.existing_allocs[i] orelse return failFmt(w, "--from-token slot {d} empty", .{i});
+        const parts = splitPair(raw) catch return failFmt(w, "--from-token must be tid:wei (got '{s}')", .{raw});
+        const tid = std.fmt.parseInt(u32, parts[0], 10) catch return failFmt(w, "--from-token tid not an integer: '{s}'", .{parts[0]});
+        existing_pairs[i] = .{ .token = tid, .wei = parts[1] };
+    }
+
+    if (a.dry_run) {
+        if (w.format == .json) {
+            try w.jsonFmt("{{\"status\":\"dry_run\",\"token\":{d},\"userAllocs\":{d},\"existingAllocs\":{d}}}", .{ a.token, a.user_count, a.existing_count });
+        } else {
+            try w.styled(Style.bold_yellow, "\xe2\x8a\x98 dry-run");
+            try w.print(" user-genesis token={d}  users={d}  existing={d}\n", .{ a.token, a.user_count, a.existing_count });
+            for (0..a.user_count) |i| try w.print("    {s} -> {s} wei\n", .{ user_pairs[i][0], user_pairs[i][1] });
+            for (0..a.existing_count) |i| try w.print("    from tid {d} -> {s} wei\n", .{ existing_pairs[i].token, existing_pairs[i].wei });
+        }
+        return;
+    }
+
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+
+    const ug = hlz.hypercore.types.SpotDeployUserGenesis{
+        .token = a.token,
+        .user_and_wei = user_pairs[0..a.user_count],
+        .existing_token_and_wei = existing_pairs[0..a.existing_count],
+    };
+
+    var nonce_handler = response.NonceHandler.init();
+    const nonce = nonce_handler.next();
+    var result = try client.spotDeployUserGenesis(auth.signer, ug, nonce);
+    defer result.deinit();
+
+    if (w.format == .json) {
+        try w.jsonRaw(result.body);
+        return;
+    }
+    const ok = try result.isOk();
+    if (ok) {
+        try w.success("user-genesis submitted");
+        try w.print(" token={d} users={d} existing={d}\n", .{ a.token, a.user_count, a.existing_count });
+    } else {
+        try w.fail("user-genesis failed");
+        try w.print("{s}\n", .{result.body});
+        return error.CommandFailed;
     }
 }
 
