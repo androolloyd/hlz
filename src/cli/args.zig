@@ -59,10 +59,21 @@ pub const DeployArgs = struct {
 pub const DeployAction = union(enum) {
     help,
     status: DeployStatusArgs,
+    spot_register: DeploySpotRegisterArgs,
 };
 
 pub const DeployStatusArgs = struct {
     pair: bool = false,
+};
+
+pub const DeploySpotRegisterArgs = struct {
+    name: []const u8,
+    sz_decimals: u32,
+    wei_decimals: u32,
+    /// maxGas in HYPE wei (8 decimals) — the CLI accepts `--max-gas` in whole HYPE and multiplies.
+    max_gas_hype: u64,
+    full_name: ?[]const u8 = null,
+    dry_run: bool = false,
 };
 
 pub const HelpTopic = enum {
@@ -402,7 +413,7 @@ pub fn parse(allocator: std.mem.Allocator, args: std.process.Args) ParseError!Pa
     _ = args_iter.next(); // skip binary name
 
     var flags = GlobalFlags{};
-    var positionals: [8][]const u8 = undefined;
+    var positionals: [64][]const u8 = undefined;
     var pos_count: usize = 0;
 
     // First pass: extract global flags and collect positionals
@@ -1085,7 +1096,7 @@ fn parseAccount(args: []const []const u8) AccountArgs {
 }
 
 // hlz deploy status [--pair]
-// hlz deploy spot <subcmd>  ← subcommands land in follow-up commits
+// hlz deploy spot <subcmd>
 fn parseDeploy(args: []const []const u8) DeployArgs {
     if (args.len == 0) return .{};
     const first = args[0];
@@ -1097,6 +1108,44 @@ fn parseDeploy(args: []const []const u8) DeployArgs {
             if (std.mem.eql(u8, a, "--pair")) st.pair = true;
         }
         return .{ .action = .{ .status = st } };
+    }
+    if (std.mem.eql(u8, first, "spot")) return parseDeploySpot(rest);
+    return .{};
+}
+
+fn parseDeploySpot(args: []const []const u8) DeployArgs {
+    if (args.len == 0) return .{};
+    const sub = args[0];
+    const rest = args[1..];
+
+    if (std.mem.eql(u8, sub, "register")) {
+        if (rest.len < 1) return .{};
+        var r = DeploySpotRegisterArgs{
+            .name = rest[0],
+            .sz_decimals = 2,
+            .wei_decimals = 8,
+            .max_gas_hype = 0,
+        };
+        var i: usize = 1;
+        while (i < rest.len) : (i += 1) {
+            const a = rest[i];
+            if (std.mem.eql(u8, a, "--sz-dec") and i + 1 < rest.len) {
+                i += 1;
+                r.sz_decimals = std.fmt.parseInt(u32, rest[i], 10) catch continue;
+            } else if (std.mem.eql(u8, a, "--wei-dec") and i + 1 < rest.len) {
+                i += 1;
+                r.wei_decimals = std.fmt.parseInt(u32, rest[i], 10) catch continue;
+            } else if (std.mem.eql(u8, a, "--max-gas") and i + 1 < rest.len) {
+                i += 1;
+                r.max_gas_hype = std.fmt.parseInt(u64, rest[i], 10) catch continue;
+            } else if (std.mem.eql(u8, a, "--full-name") and i + 1 < rest.len) {
+                i += 1;
+                r.full_name = rest[i];
+            } else if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) {
+                r.dry_run = true;
+            }
+        }
+        return .{ .action = .{ .spot_register = r } };
     }
     return .{};
 }

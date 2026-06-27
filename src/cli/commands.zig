@@ -4807,6 +4807,61 @@ pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
     switch (a.action) {
         .help => try printDeployHelp(w),
         .status => |st| try deployStatus(allocator, w, config, st),
+        .spot_register => |r| try deploySpotRegister(allocator, w, config, r),
+    }
+}
+
+const HYPE_WEI_PER_UNIT: u64 = 100_000_000;
+
+fn deploySpotRegister(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotRegisterArgs) !void {
+    if (a.max_gas_hype == 0) return failFmt(w, "--max-gas <HYPE> required (500 = HIP-1 floor)", .{});
+    if (a.max_gas_hype > std.math.maxInt(u64) / HYPE_WEI_PER_UNIT) return failFmt(w, "--max-gas too large", .{});
+    const max_gas_wei = a.max_gas_hype * HYPE_WEI_PER_UNIT;
+
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+
+    const rt = hlz.hypercore.types.SpotDeployRegisterToken{
+        .name = a.name,
+        .sz_decimals = a.sz_decimals,
+        .wei_decimals = a.wei_decimals,
+        .max_gas = max_gas_wei,
+        .full_name = a.full_name orelse a.name,
+    };
+
+    if (a.dry_run) {
+        if (w.format == .json) {
+            try w.jsonFmt("{{\"status\":\"dry_run\",\"name\":\"{s}\",\"maxGasHype\":{d},\"maxGasWei\":{d},\"szDecimals\":{d},\"weiDecimals\":{d}}}", .{
+                a.name, a.max_gas_hype, max_gas_wei, a.sz_decimals, a.wei_decimals,
+            });
+        } else {
+            try w.styled(Style.bold_yellow, "\xe2\x8a\x98 dry-run");
+            try w.print(" register {s} maxGas={d} HYPE ({d} wei)  szDec={d} weiDec={d}\n", .{
+                a.name, a.max_gas_hype, max_gas_wei, a.sz_decimals, a.wei_decimals,
+            });
+        }
+        return;
+    }
+
+    const auth = try getWriteAuth(w, config);
+    var nonce_handler = response.NonceHandler.init();
+    const nonce = nonce_handler.next();
+
+    var result = try client.spotDeployRegisterToken(auth.signer, rt, nonce);
+    defer result.deinit();
+
+    if (w.format == .json) {
+        try w.jsonRaw(result.body);
+        return;
+    }
+    const ok = try result.isOk();
+    if (ok) {
+        try w.success("register submitted");
+        try w.print(" name={s} maxGas={d} HYPE\n", .{ a.name, a.max_gas_hype });
+    } else {
+        try w.fail("register failed");
+        try w.print("{s}\n", .{result.body});
+        return error.CommandFailed;
     }
 }
 
