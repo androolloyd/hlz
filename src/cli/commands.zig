@@ -4809,6 +4809,55 @@ pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
         .status => |st| try deployStatus(allocator, w, config, st),
         .spot_register => |r| try deploySpotRegister(allocator, w, config, r),
         .spot_user_genesis => |g| try deploySpotUserGenesis(allocator, w, config, g),
+        .spot_genesis => |g| try deploySpotGenesis(allocator, w, config, g),
+    }
+}
+
+fn deploySpotGenesis(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotGenesisArgs) !void {
+    if (a.max_supply.len == 0) return failFmt(w, "--max-supply <WEI> required (must match sum of user-genesis allocations)", .{});
+
+    if (a.dry_run) {
+        if (w.format == .json) {
+            try w.jsonFmt("{{\"status\":\"dry_run\",\"token\":{d},\"maxSupply\":\"{s}\",\"noHyperliquidity\":{s}}}", .{
+                a.token, a.max_supply, if (a.no_hyperliquidity) "true" else "false",
+            });
+        } else {
+            try w.styled(Style.bold_yellow, "\xe2\x8a\x98 dry-run");
+            try w.print(" genesis token={d} maxSupply={s}{s}\n", .{
+                a.token, a.max_supply,
+                if (a.no_hyperliquidity) " no-hyperliquidity" else "",
+            });
+        }
+        return;
+    }
+
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+
+    const g = hlz.hypercore.types.SpotDeployGenesis{
+        .token = a.token,
+        .max_supply = a.max_supply,
+        .no_hyperliquidity = a.no_hyperliquidity,
+    };
+
+    var nonce_handler = response.NonceHandler.init();
+    const nonce = nonce_handler.next();
+    var result = try client.spotDeployGenesis(auth.signer, g, nonce);
+    defer result.deinit();
+
+    if (w.format == .json) {
+        try w.jsonRaw(result.body);
+        return;
+    }
+    const ok = try result.isOk();
+    if (ok) {
+        try w.success("genesis submitted");
+        try w.print(" token={d} maxSupply={s}\n", .{ a.token, a.max_supply });
+    } else {
+        try w.fail("genesis failed");
+        try w.print("{s}\n", .{result.body});
+        return error.CommandFailed;
     }
 }
 

@@ -61,6 +61,7 @@ pub const DeployAction = union(enum) {
     status: DeployStatusArgs,
     spot_register: DeploySpotRegisterArgs,
     spot_user_genesis: DeploySpotUserGenesisArgs,
+    spot_genesis: DeploySpotGenesisArgs,
 };
 
 pub const DeployStatusArgs = struct {
@@ -85,6 +86,13 @@ pub const DeploySpotUserGenesisArgs = struct {
     /// Raw slots referencing --from-token tid:wei entries.
     existing_allocs: [16]?[]const u8 = .{null} ** 16,
     existing_count: usize = 0,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotGenesisArgs = struct {
+    token: u32,
+    max_supply: []const u8,
+    no_hyperliquidity: bool = false,
     dry_run: bool = false,
 };
 
@@ -1180,6 +1188,24 @@ fn parseDeploySpot(args: []const []const u8) DeployArgs {
             }
         }
         return .{ .action = .{ .spot_user_genesis = g } };
+    }
+    if (std.mem.eql(u8, sub, "genesis")) {
+        if (rest.len < 1) return .{};
+        const token = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var g = DeploySpotGenesisArgs{ .token = token, .max_supply = "" };
+        var i: usize = 1;
+        while (i < rest.len) : (i += 1) {
+            const a = rest[i];
+            if (std.mem.eql(u8, a, "--max-supply") and i + 1 < rest.len) {
+                i += 1;
+                g.max_supply = rest[i];
+            } else if (std.mem.eql(u8, a, "--no-hyperliquidity")) {
+                g.no_hyperliquidity = true;
+            } else if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) {
+                g.dry_run = true;
+            }
+        }
+        return .{ .action = .{ .spot_genesis = g } };
     }
     return .{};
 }
