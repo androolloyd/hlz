@@ -63,6 +63,7 @@ pub const DeployAction = union(enum) {
     spot_user_genesis: DeploySpotUserGenesisArgs,
     spot_genesis: DeploySpotGenesisArgs,
     spot_register_pair: DeploySpotRegisterPairArgs,
+    spot_hyperliquidity: DeploySpotHyperliquidityArgs,
 };
 
 pub const DeployStatusArgs = struct {
@@ -100,6 +101,15 @@ pub const DeploySpotGenesisArgs = struct {
 pub const DeploySpotRegisterPairArgs = struct {
     base_token: u32,
     quote_token: u32,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotHyperliquidityArgs = struct {
+    spot: u32,
+    start_px: []const u8 = "",
+    order_sz: []const u8 = "",
+    n_orders: u32 = 0,
+    n_seeded_levels: ?u32 = null,
     dry_run: bool = false,
 };
 
@@ -1223,6 +1233,31 @@ fn parseDeploySpot(args: []const []const u8) DeployArgs {
             if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) r.dry_run = true;
         }
         return .{ .action = .{ .spot_register_pair = r } };
+    }
+    if (std.mem.eql(u8, sub, "hyperliquidity")) {
+        if (rest.len < 1) return .{};
+        const spot_idx = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var h = DeploySpotHyperliquidityArgs{ .spot = spot_idx };
+        var i: usize = 1;
+        while (i < rest.len) : (i += 1) {
+            const a = rest[i];
+            if (std.mem.eql(u8, a, "--start-px") and i + 1 < rest.len) {
+                i += 1;
+                h.start_px = rest[i];
+            } else if (std.mem.eql(u8, a, "--order-sz") and i + 1 < rest.len) {
+                i += 1;
+                h.order_sz = rest[i];
+            } else if (std.mem.eql(u8, a, "--n-orders") and i + 1 < rest.len) {
+                i += 1;
+                h.n_orders = std.fmt.parseInt(u32, rest[i], 10) catch continue;
+            } else if (std.mem.eql(u8, a, "--seeded-levels") and i + 1 < rest.len) {
+                i += 1;
+                h.n_seeded_levels = std.fmt.parseInt(u32, rest[i], 10) catch null;
+            } else if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) {
+                h.dry_run = true;
+            }
+        }
+        return .{ .action = .{ .spot_hyperliquidity = h } };
     }
     return .{};
 }

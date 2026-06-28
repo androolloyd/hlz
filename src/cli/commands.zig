@@ -4811,6 +4811,60 @@ pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
         .spot_user_genesis => |g| try deploySpotUserGenesis(allocator, w, config, g),
         .spot_genesis => |g| try deploySpotGenesis(allocator, w, config, g),
         .spot_register_pair => |r| try deploySpotRegisterPair(allocator, w, config, r),
+        .spot_hyperliquidity => |h| try deploySpotHyperliquidity(allocator, w, config, h),
+    }
+}
+
+fn deploySpotHyperliquidity(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotHyperliquidityArgs) !void {
+    if (a.start_px.len == 0) return failFmt(w, "--start-px <PX> required", .{});
+    if (a.order_sz.len == 0) return failFmt(w, "--order-sz <SZ> required", .{});
+
+    if (a.dry_run) {
+        if (w.format == .json) {
+            try w.jsonFmt("{{\"status\":\"dry_run\",\"spot\":{d},\"startPx\":\"{s}\",\"orderSz\":\"{s}\",\"nOrders\":{d}}}", .{
+                a.spot, a.start_px, a.order_sz, a.n_orders,
+            });
+        } else {
+            try w.styled(Style.bold_yellow, "\xe2\x8a\x98 dry-run");
+            try w.print(" hyperliquidity spot={d} startPx={s} orderSz={s} nOrders={d}", .{
+                a.spot, a.start_px, a.order_sz, a.n_orders,
+            });
+            if (a.n_seeded_levels) |n| try w.print(" seededLevels={d}", .{n});
+            try w.nl();
+        }
+        return;
+    }
+
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+
+    const rh = hlz.hypercore.types.SpotDeployRegisterHyperliquidity{
+        .spot = a.spot,
+        .start_px = a.start_px,
+        .order_sz = a.order_sz,
+        .n_orders = a.n_orders,
+        .n_seeded_levels = a.n_seeded_levels,
+    };
+
+    var nonce_handler = response.NonceHandler.init();
+    var result = try client.spotDeployRegisterHyperliquidity(auth.signer, rh, nonce_handler.next());
+    defer result.deinit();
+
+    if (w.format == .json) {
+        try w.jsonRaw(result.body);
+        return;
+    }
+    const ok = try result.isOk();
+    if (ok) {
+        try w.success("hyperliquidity submitted");
+        try w.print(" spot={d} startPx={s} orderSz={s} nOrders={d}\n", .{
+            a.spot, a.start_px, a.order_sz, a.n_orders,
+        });
+    } else {
+        try w.fail("hyperliquidity failed");
+        try w.print("{s}\n", .{result.body});
+        return error.CommandFailed;
     }
 }
 
