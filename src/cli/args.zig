@@ -62,6 +62,7 @@ pub const DeployAction = union(enum) {
     spot_register: DeploySpotRegisterArgs,
     spot_user_genesis: DeploySpotUserGenesisArgs,
     spot_genesis: DeploySpotGenesisArgs,
+    spot_register_pair: DeploySpotRegisterPairArgs,
 };
 
 pub const DeployStatusArgs = struct {
@@ -93,6 +94,12 @@ pub const DeploySpotGenesisArgs = struct {
     token: u32,
     max_supply: []const u8,
     no_hyperliquidity: bool = false,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotRegisterPairArgs = struct {
+    base_token: u32,
+    quote_token: u32,
     dry_run: bool = false,
 };
 
@@ -1206,6 +1213,16 @@ fn parseDeploySpot(args: []const []const u8) DeployArgs {
             }
         }
         return .{ .action = .{ .spot_genesis = g } };
+    }
+    if (std.mem.eql(u8, sub, "register-pair")) {
+        if (rest.len < 2) return .{};
+        const base = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        const quote = std.fmt.parseInt(u32, rest[1], 10) catch return .{};
+        var r = DeploySpotRegisterPairArgs{ .base_token = base, .quote_token = quote };
+        for (rest[2..]) |a| {
+            if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) r.dry_run = true;
+        }
+        return .{ .action = .{ .spot_register_pair = r } };
     }
     return .{};
 }

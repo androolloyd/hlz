@@ -4810,6 +4810,42 @@ pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
         .spot_register => |r| try deploySpotRegister(allocator, w, config, r),
         .spot_user_genesis => |g| try deploySpotUserGenesis(allocator, w, config, g),
         .spot_genesis => |g| try deploySpotGenesis(allocator, w, config, g),
+        .spot_register_pair => |r| try deploySpotRegisterPair(allocator, w, config, r),
+    }
+}
+
+fn deploySpotRegisterPair(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotRegisterPairArgs) !void {
+    if (a.dry_run) {
+        if (w.format == .json) {
+            try w.jsonFmt("{{\"status\":\"dry_run\",\"baseToken\":{d},\"quoteToken\":{d}}}", .{ a.base_token, a.quote_token });
+        } else {
+            try w.styled(Style.bold_yellow, "\xe2\x8a\x98 dry-run");
+            try w.print(" register-pair base={d} quote={d}\n", .{ a.base_token, a.quote_token });
+        }
+        return;
+    }
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+    const rs = hlz.hypercore.types.SpotDeployRegisterSpot{
+        .base_token = a.base_token,
+        .quote_token = a.quote_token,
+    };
+    var nonce_handler = response.NonceHandler.init();
+    var result = try client.spotDeployRegisterSpot(auth.signer, rs, nonce_handler.next());
+    defer result.deinit();
+    if (w.format == .json) {
+        try w.jsonRaw(result.body);
+        return;
+    }
+    const ok = try result.isOk();
+    if (ok) {
+        try w.success("register-pair submitted");
+        try w.print(" base={d} quote={d}\n", .{ a.base_token, a.quote_token });
+    } else {
+        try w.fail("register-pair failed");
+        try w.print("{s}\n", .{result.body});
+        return error.CommandFailed;
     }
 }
 
