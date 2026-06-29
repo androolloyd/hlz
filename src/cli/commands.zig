@@ -4812,6 +4812,92 @@ pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
         .spot_genesis => |g| try deploySpotGenesis(allocator, w, config, g),
         .spot_register_pair => |r| try deploySpotRegisterPair(allocator, w, config, r),
         .spot_hyperliquidity => |h| try deploySpotHyperliquidity(allocator, w, config, h),
+        .spot_fee_share => |r| try deploySpotFeeShare(allocator, w, config, r),
+        .spot_freeze => |f| try deploySpotFreeze(allocator, w, config, f),
+        .spot_token_action => |t| try deploySpotTokenAction(allocator, w, config, t),
+    }
+}
+
+fn deploySpotFeeShare(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotFeeShareArgs) !void {
+    if (a.dry_run) {
+        try dryRunPrint(w, "fee-share", &[_][2][]const u8{ .{ "token", intBuf(a.token) }, .{ "share", a.share } });
+        return;
+    }
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+    var nh = response.NonceHandler.init();
+    var result = try client.spotDeploySetTradingFeeShare(auth.signer, a.token, a.share, nh.next());
+    defer result.deinit();
+    try renderDeployResult(w, "fee-share", &result, &[_][2][]const u8{ .{ "token", intBuf(a.token) }, .{ "share", a.share } });
+}
+
+fn deploySpotFreeze(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotFreezeArgs) !void {
+    const label: []const u8 = if (a.unfreeze) "unfreeze" else "freeze";
+    if (a.dry_run) {
+        try dryRunPrint(w, label, &[_][2][]const u8{ .{ "token", intBuf(a.token) }, .{ "user", a.user } });
+        return;
+    }
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+    var nh = response.NonceHandler.init();
+    var result = try client.spotDeployFreezeUser(auth.signer, a.token, a.user, !a.unfreeze, nh.next());
+    defer result.deinit();
+    try renderDeployResult(w, label, &result, &[_][2][]const u8{ .{ "token", intBuf(a.token) }, .{ "user", a.user } });
+}
+
+fn deploySpotTokenAction(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotTokenActionArgs) !void {
+    if (a.dry_run) {
+        try dryRunPrint(w, "token-action", &[_][2][]const u8{ .{ "token", intBuf(a.token) }, .{ "variant", a.variant } });
+        return;
+    }
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+    var nh = response.NonceHandler.init();
+    var result = try client.spotDeployTokenAction(auth.signer, a.variant, a.token, nh.next());
+    defer result.deinit();
+    try renderDeployResult(w, a.variant, &result, &[_][2][]const u8{ .{ "token", intBuf(a.token) }});
+}
+
+// ── Small dry-run / result helpers for the compact admin commands ──
+
+threadlocal var deploy_int_buf: [24]u8 = undefined;
+fn intBuf(v: u32) []const u8 {
+    return std.fmt.bufPrint(&deploy_int_buf, "{d}", .{v}) catch "?";
+}
+
+fn dryRunPrint(w: *Writer, label: []const u8, pairs: []const [2][]const u8) !void {
+    if (w.format == .json) {
+        var buf: [512]u8 = undefined;
+        var wj: std.Io.Writer = .fixed(&buf);
+        try wj.print("{{\"status\":\"dry_run\",\"op\":\"{s}\"", .{label});
+        for (pairs) |kv| try wj.print(",\"{s}\":\"{s}\"", .{ kv[0], kv[1] });
+        try wj.writeAll("}");
+        try w.jsonRaw(wj.buffered());
+    } else {
+        try w.styled(Style.bold_yellow, "\xe2\x8a\x98 dry-run");
+        try w.print(" {s}", .{label});
+        for (pairs) |kv| try w.print("  {s}={s}", .{ kv[0], kv[1] });
+        try w.nl();
+    }
+}
+
+fn renderDeployResult(w: *Writer, label: []const u8, result: anytype, pairs: []const [2][]const u8) !void {
+    if (w.format == .json) {
+        try w.jsonRaw(result.body);
+        return;
+    }
+    const ok = try result.isOk();
+    if (ok) {
+        try w.success(label);
+        for (pairs) |kv| try w.print(" {s}={s}", .{ kv[0], kv[1] });
+        try w.nl();
+    } else {
+        try w.failFmt("{s} failed", .{label});
+        try w.print("{s}\n", .{result.body});
+        return error.CommandFailed;
     }
 }
 

@@ -64,6 +64,9 @@ pub const DeployAction = union(enum) {
     spot_genesis: DeploySpotGenesisArgs,
     spot_register_pair: DeploySpotRegisterPairArgs,
     spot_hyperliquidity: DeploySpotHyperliquidityArgs,
+    spot_fee_share: DeploySpotFeeShareArgs,
+    spot_freeze: DeploySpotFreezeArgs,
+    spot_token_action: DeploySpotTokenActionArgs,
 };
 
 pub const DeployStatusArgs = struct {
@@ -110,6 +113,25 @@ pub const DeploySpotHyperliquidityArgs = struct {
     order_sz: []const u8 = "",
     n_orders: u32 = 0,
     n_seeded_levels: ?u32 = null,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotFeeShareArgs = struct {
+    token: u32,
+    share: []const u8,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotFreezeArgs = struct {
+    token: u32,
+    user: []const u8,
+    unfreeze: bool = false,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotTokenActionArgs = struct {
+    token: u32,
+    variant: []const u8,
     dry_run: bool = false,
 };
 
@@ -1258,6 +1280,34 @@ fn parseDeploySpot(args: []const []const u8) DeployArgs {
             }
         }
         return .{ .action = .{ .spot_hyperliquidity = h } };
+    }
+    if (std.mem.eql(u8, sub, "fee-share")) {
+        if (rest.len < 2) return .{};
+        const token = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var r = DeploySpotFeeShareArgs{ .token = token, .share = rest[1] };
+        for (rest[2..]) |a| {
+            if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) r.dry_run = true;
+        }
+        return .{ .action = .{ .spot_fee_share = r } };
+    }
+    if (std.mem.eql(u8, sub, "freeze")) {
+        if (rest.len < 2) return .{};
+        const token = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var f = DeploySpotFreezeArgs{ .token = token, .user = rest[1] };
+        for (rest[2..]) |a| {
+            if (std.mem.eql(u8, a, "--unfreeze")) f.unfreeze = true;
+            if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) f.dry_run = true;
+        }
+        return .{ .action = .{ .spot_freeze = f } };
+    }
+    if (std.mem.eql(u8, sub, "token-action")) {
+        if (rest.len < 2) return .{};
+        const token = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var t = DeploySpotTokenActionArgs{ .token = token, .variant = rest[1] };
+        for (rest[2..]) |a| {
+            if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) t.dry_run = true;
+        }
+        return .{ .action = .{ .spot_token_action = t } };
     }
     return .{};
 }
