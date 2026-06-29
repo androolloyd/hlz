@@ -4815,7 +4815,97 @@ pub fn deployCmd(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
         .spot_fee_share => |r| try deploySpotFeeShare(allocator, w, config, r),
         .spot_freeze => |f| try deploySpotFreeze(allocator, w, config, f),
         .spot_token_action => |t| try deploySpotTokenAction(allocator, w, config, t),
+        .spot_request_evm => |r| try deploySpotRequestEvm(allocator, w, config, r),
+        .spot_finalize_evm => |f| try deploySpotFinalizeEvm(allocator, w, config, f),
+        .spot_enable_quote => |e| try deploySpotEnableToggle(allocator, w, config, e, false),
+        .spot_enable_aligned => |e| try deploySpotEnableToggle(allocator, w, config, e, true),
     }
+}
+
+fn deploySpotRequestEvm(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotRequestEvmArgs) !void {
+    if (a.address.len != 42 or !std.mem.startsWith(u8, a.address, "0x")) {
+        return failFmt(w, "address must be lowercase 0x + 40 hex chars", .{});
+    }
+    if (a.extra_wei_dec < -2 or a.extra_wei_dec > 18) {
+        return failFmt(w, "--extra-wei-dec out of range [-2, 18]", .{});
+    }
+
+    if (a.dry_run) {
+        var wei_buf: [8]u8 = undefined;
+        const wei_str = std.fmt.bufPrint(&wei_buf, "{d}", .{a.extra_wei_dec}) catch "?";
+        try dryRunPrint(w, "request-evm", &[_][2][]const u8{
+            .{ "token", intBuf(a.token) },
+            .{ "address", a.address },
+            .{ "extraWeiDec", wei_str },
+        });
+        return;
+    }
+
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+    var nh = response.NonceHandler.init();
+    const r = hlz.hypercore.types.SpotDeployRequestEvmContract{
+        .token = a.token,
+        .address = a.address,
+        .evm_extra_wei_decimals = a.extra_wei_dec,
+    };
+    var result = try client.spotDeployRequestEvmContract(auth.signer, r, nh.next());
+    defer result.deinit();
+    try renderDeployResult(w, "request-evm", &result, &[_][2][]const u8{
+        .{ "token", intBuf(a.token) },
+        .{ "address", a.address },
+    });
+}
+
+fn deploySpotFinalizeEvm(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotFinalizeEvmArgs) !void {
+    const proof_label: []const u8 = switch (a.proof) {
+        .create_nonce => "create",
+        .first_storage_slot => "firstStorageSlot",
+        .custom_storage_slot => "customStorageSlot",
+    };
+
+    if (a.dry_run) {
+        try dryRunPrint(w, "finalize-evm", &[_][2][]const u8{
+            .{ "token", intBuf(a.token) },
+            .{ "proof", proof_label },
+        });
+        return;
+    }
+
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+    var nh = response.NonceHandler.init();
+    const input: hlz.hypercore.types.FinalizeEvmContractInput = switch (a.proof) {
+        .create_nonce => |n| .{ .create = n },
+        .first_storage_slot => .first_storage_slot,
+        .custom_storage_slot => .custom_storage_slot,
+    };
+    var result = try client.finalizeEvmContract(auth.signer, a.token, input, nh.next());
+    defer result.deinit();
+    try renderDeployResult(w, "finalize-evm", &result, &[_][2][]const u8{
+        .{ "token", intBuf(a.token) },
+        .{ "proof", proof_label },
+    });
+}
+
+fn deploySpotEnableToggle(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotEnableQuoteArgs, aligned: bool) !void {
+    const label: []const u8 = if (aligned) "enable-aligned" else "enable-quote";
+    if (a.dry_run) {
+        try dryRunPrint(w, label, &[_][2][]const u8{ .{ "token", intBuf(a.token) } });
+        return;
+    }
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+    const auth = try getWriteAuth(w, config);
+    var nh = response.NonceHandler.init();
+    var result = if (aligned)
+        try client.spotDeployEnableAlignedQuoteToken(auth.signer, a.token, nh.next())
+    else
+        try client.spotDeployEnableQuoteToken(auth.signer, a.token, nh.next());
+    defer result.deinit();
+    try renderDeployResult(w, label, &result, &[_][2][]const u8{ .{ "token", intBuf(a.token) }});
 }
 
 fn deploySpotFeeShare(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotFeeShareArgs) !void {

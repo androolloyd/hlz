@@ -67,6 +67,10 @@ pub const DeployAction = union(enum) {
     spot_fee_share: DeploySpotFeeShareArgs,
     spot_freeze: DeploySpotFreezeArgs,
     spot_token_action: DeploySpotTokenActionArgs,
+    spot_request_evm: DeploySpotRequestEvmArgs,
+    spot_finalize_evm: DeploySpotFinalizeEvmArgs,
+    spot_enable_quote: DeploySpotEnableQuoteArgs,
+    spot_enable_aligned: DeploySpotEnableQuoteArgs,
 };
 
 pub const DeployStatusArgs = struct {
@@ -132,6 +136,31 @@ pub const DeploySpotFreezeArgs = struct {
 pub const DeploySpotTokenActionArgs = struct {
     token: u32,
     variant: []const u8,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotRequestEvmArgs = struct {
+    token: u32,
+    address: []const u8,
+    /// EVM weiDecimals minus Core weiDecimals; range [-2, 18].
+    extra_wei_dec: i8 = 0,
+    dry_run: bool = false,
+};
+
+pub const FinalizeEvmProof = union(enum) {
+    create_nonce: u64,
+    first_storage_slot,
+    custom_storage_slot,
+};
+
+pub const DeploySpotFinalizeEvmArgs = struct {
+    token: u32,
+    proof: FinalizeEvmProof,
+    dry_run: bool = false,
+};
+
+pub const DeploySpotEnableQuoteArgs = struct {
+    token: u32,
     dry_run: bool = false,
 };
 
@@ -1308,6 +1337,55 @@ fn parseDeploySpot(args: []const []const u8) DeployArgs {
             if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) t.dry_run = true;
         }
         return .{ .action = .{ .spot_token_action = t } };
+    }
+    if (std.mem.eql(u8, sub, "request-evm")) {
+        if (rest.len < 2) return .{};
+        const token = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var r = DeploySpotRequestEvmArgs{ .token = token, .address = rest[1] };
+        var i: usize = 2;
+        while (i < rest.len) : (i += 1) {
+            const a = rest[i];
+            if (std.mem.eql(u8, a, "--extra-wei-dec") and i + 1 < rest.len) {
+                i += 1;
+                r.extra_wei_dec = std.fmt.parseInt(i8, rest[i], 10) catch continue;
+            } else if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) {
+                r.dry_run = true;
+            }
+        }
+        return .{ .action = .{ .spot_request_evm = r } };
+    }
+    if (std.mem.eql(u8, sub, "finalize-evm")) {
+        if (rest.len < 1) return .{};
+        const token = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var proof: ?FinalizeEvmProof = null;
+        var dry = false;
+        var i: usize = 1;
+        while (i < rest.len) : (i += 1) {
+            const a = rest[i];
+            if (std.mem.eql(u8, a, "--create-nonce") and i + 1 < rest.len) {
+                i += 1;
+                const n = std.fmt.parseInt(u64, rest[i], 10) catch continue;
+                proof = .{ .create_nonce = n };
+            } else if (std.mem.eql(u8, a, "--first-slot")) {
+                proof = .first_storage_slot;
+            } else if (std.mem.eql(u8, a, "--custom-slot")) {
+                proof = .custom_storage_slot;
+            } else if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) {
+                dry = true;
+            }
+        }
+        const chosen = proof orelse return .{};
+        return .{ .action = .{ .spot_finalize_evm = .{ .token = token, .proof = chosen, .dry_run = dry } } };
+    }
+    if (std.mem.eql(u8, sub, "enable-quote") or std.mem.eql(u8, sub, "enable-aligned")) {
+        if (rest.len < 1) return .{};
+        const token = std.fmt.parseInt(u32, rest[0], 10) catch return .{};
+        var e = DeploySpotEnableQuoteArgs{ .token = token };
+        for (rest[1..]) |a| {
+            if (std.mem.eql(u8, a, "--dry-run") or std.mem.eql(u8, a, "-n")) e.dry_run = true;
+        }
+        if (std.mem.eql(u8, sub, "enable-quote")) return .{ .action = .{ .spot_enable_quote = e } };
+        return .{ .action = .{ .spot_enable_aligned = e } };
     }
     return .{};
 }
