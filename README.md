@@ -216,6 +216,25 @@ hlz approve-agent <ADDR>             # Approve API wallet
 </details>
 
 <details>
+<summary><strong>Deploy</strong> (HIP-1 spot tokens)</summary>
+
+```bash
+hlz deploy status                         # live auction gas curves
+hlz deploy spot register XD --max-gas 500 # step 1: bid the ticker auction
+hlz deploy spot user-genesis 2195 \
+  --alloc 0xabc...:1000000000             # step 2: allocations
+hlz deploy spot genesis 2195 --max-supply 1500000000        # step 3
+hlz deploy spot register-pair 2195 0                        # step 4
+hlz deploy spot hyperliquidity 200 --start-px 1 --order-sz 10 --n-orders 5  # step 5
+hlz deploy spot request-evm 2195 0x<erc20> --extra-wei-dec -2   # link a HyperEVM ERC-20
+```
+
+Every write subcommand supports `--dry-run` to preview without signing.
+See `hlz deploy` for the full tree.
+
+</details>
+
+<details>
 <summary><strong>Global Flags & Environment</strong></summary>
 
 ```

@@ -19,6 +19,7 @@
 | [Transfers](/cli/transfers) | `send` | Yes |
 | [Streaming](/cli/streaming) | `stream` | No (public) / Yes (user events) |
 | [Keys](/cli/keys) | `keys ls/new/import/export/default/rm` | No |
+| [Deploy](/cli/deploy) | `deploy status`, `deploy spot <register\|user-genesis\|genesis\|register-pair\|hyperliquidity\|fee-share\|freeze\|token-action\|request-evm\|finalize-evm\|enable-quote\|enable-aligned>` | Read: no · Write: yes |
 | [TUI](/terminal) | `trade`, `markets` | Yes (trading) / No (viewing) |
 
 ## Global Flags
