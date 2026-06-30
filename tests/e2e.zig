@@ -199,6 +199,13 @@ fn verifyFundingHistory(allocator: std.mem.Allocator, v: std.json.Value) !void {
     if (parsed.value.coin.len == 0) return error.MissingFundingFields;
 }
 
+fn verifyDeployAuctionStatus(allocator: std.mem.Allocator, v: std.json.Value) !void {
+    var parsed = try parseTyped(response_mod.DeployAuctionStatus, allocator, v);
+    defer parsed.deinit();
+    if (parsed.value.startGas.len == 0) return error.MissingStartGas;
+    if (parsed.value.durationSeconds == 0) return error.MissingDuration;
+}
+
 fn runInfoChecks(allocator: std.mem.Allocator, counts: *Counts) !void {
     var client = client_mod.Client.mainnet(allocator);
     defer client.deinit();
@@ -415,6 +422,53 @@ fn runInfoChecks(allocator: std.mem.Allocator, counts: *Counts) !void {
             record(.pass, counts, "mainnet/info/candleSnapshot", statusCode(res.status), res.body, "parse ok", .{});
         } else |err| {
             record(.fail, counts, "mainnet/info/candleSnapshot", statusCode(res.status), res.body, "parse error={s}", .{@errorName(err)});
+        }
+    }
+
+    perp_deploy_auction_blk: {
+        var res = client.perpDeployAuctionStatus() catch |err| {
+            record(.fail, counts, "mainnet/info/perpDeployAuctionStatus", null, null, "request error={s}", .{@errorName(err)});
+            break :perp_deploy_auction_blk;
+        };
+        defer res.deinit();
+        const v = mustParseJsonInfo(&res) catch |err| {
+            record(.fail, counts, "mainnet/info/perpDeployAuctionStatus", statusCode(res.status), res.body, "json/parse error={s}", .{@errorName(err)});
+            break :perp_deploy_auction_blk;
+        };
+        if (verifyDeployAuctionStatus(allocator, v)) |_| {
+            record(.pass, counts, "mainnet/info/perpDeployAuctionStatus", statusCode(res.status), res.body, "parse ok", .{});
+        } else |err| {
+            record(.fail, counts, "mainnet/info/perpDeployAuctionStatus", statusCode(res.status), res.body, "parse error={s}", .{@errorName(err)});
+        }
+    }
+
+    spot_pair_deploy_auction_blk: {
+        var res = client.spotPairDeployAuctionStatus() catch |err| {
+            record(.fail, counts, "mainnet/info/spotPairDeployAuctionStatus", null, null, "request error={s}", .{@errorName(err)});
+            break :spot_pair_deploy_auction_blk;
+        };
+        defer res.deinit();
+        const v = mustParseJsonInfo(&res) catch |err| {
+            record(.fail, counts, "mainnet/info/spotPairDeployAuctionStatus", statusCode(res.status), res.body, "json/parse error={s}", .{@errorName(err)});
+            break :spot_pair_deploy_auction_blk;
+        };
+        if (verifyDeployAuctionStatus(allocator, v)) |_| {
+            record(.pass, counts, "mainnet/info/spotPairDeployAuctionStatus", statusCode(res.status), res.body, "parse ok", .{});
+        } else |err| {
+            record(.fail, counts, "mainnet/info/spotPairDeployAuctionStatus", statusCode(res.status), res.body, "parse error={s}", .{@errorName(err)});
+        }
+    }
+
+    spot_deploy_state_blk: {
+        var res = client.spotDeployState(READ_ONLY_USER) catch |err| {
+            record(.fail, counts, "mainnet/info/spotDeployState", null, null, "request error={s}", .{@errorName(err)});
+            break :spot_deploy_state_blk;
+        };
+        defer res.deinit();
+        if (res.status == .ok) {
+            record(.pass, counts, "mainnet/info/spotDeployState", statusCode(res.status), res.body, "http ok", .{});
+        } else {
+            record(.fail, counts, "mainnet/info/spotDeployState", statusCode(res.status), res.body, "unexpected status", .{});
         }
     }
 }
