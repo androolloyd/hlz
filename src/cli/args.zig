@@ -5,6 +5,10 @@
 
 const std = @import("std");
 
+pub const MAX_WATCH_COINS = 32;
+/// Backing storage for parsed watch symbols; argv outlives every command.
+var watch_coins: [MAX_WATCH_COINS][]const u8 = undefined;
+
 pub const Command = union(enum) {
     keys: KeysArgs,
     mids: MidsArgs,
@@ -29,6 +33,7 @@ pub const Command = union(enum) {
     trade: TradeArgs,
     leverage: LeverageArgs,
     price: PriceArgs,
+    watch: WatchArgs,
     portfolio: UserQuery,
     referral: ReferralArgs,
     twap: TwapArgs,
@@ -165,6 +170,7 @@ pub const DeploySpotEnableQuoteArgs = struct {
 };
 
 pub const HelpTopic = enum {
+    watch,
     keys,
     mids,
     positions,
@@ -327,6 +333,15 @@ pub const LeverageArgs = struct {
     coin: []const u8,
     leverage: ?[]const u8 = null, // null = query only
     cross: bool = true, // --isolated flips to false
+};
+
+pub const WatchArgs = struct {
+    /// Symbols to follow, e.g. HYPE BTC PAXG. Empty means use the saved list.
+    coins: []const []const u8,
+    /// Repeat forever instead of printing once.
+    live: bool = false,
+    /// Seconds between refreshes when --live.
+    interval: u32 = 2,
 };
 
 pub const PriceArgs = struct {
@@ -586,6 +601,8 @@ pub fn parse(allocator: std.mem.Allocator, args: std.process.Args) ParseError!Pa
         .{ .trade = parseTrade(rest) }
     else if (std.mem.eql(u8, cmd_str, "leverage") or std.mem.eql(u8, cmd_str, "lev"))
         .{ .leverage = parseLeverage(rest) orelse return error.MissingArgument }
+    else if (std.mem.eql(u8, cmd_str, "watch") or std.mem.eql(u8, cmd_str, "wl"))
+        .{ .watch = parseWatch(rest) orelse return error.MissingArgument }
     else if (std.mem.eql(u8, cmd_str, "price"))
         .{ .price = parsePrice(rest) orelse return error.MissingArgument }
     else if (std.mem.eql(u8, cmd_str, "portfolio") or std.mem.eql(u8, cmd_str, "folio"))
@@ -829,6 +846,7 @@ fn canonicalHelpTopic(name: []const u8) ?HelpTopic {
     if (std.mem.eql(u8, name, "markets") or std.mem.eql(u8, name, "m")) return .markets;
     if (std.mem.eql(u8, name, "trade") or std.mem.eql(u8, name, "t")) return .trade;
     if (std.mem.eql(u8, name, "leverage") or std.mem.eql(u8, name, "lev")) return .leverage;
+    if (std.mem.eql(u8, name, "watch") or std.mem.eql(u8, name, "wl")) return .watch;
     if (std.mem.eql(u8, name, "price")) return .price;
     if (std.mem.eql(u8, name, "portfolio") or std.mem.eql(u8, name, "folio")) return .portfolio;
     if (std.mem.eql(u8, name, "referral")) return .referral;
@@ -864,6 +882,30 @@ fn parseHelp(args: []const []const u8) HelpArgs {
         break;
     }
     return result;
+}
+
+fn parseWatch(args: []const []const u8) ?WatchArgs {
+    var coins_buf: [MAX_WATCH_COINS][]const u8 = undefined;
+    var n: usize = 0;
+    var live = false;
+    var interval: u32 = 2;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--live")) {
+            live = true;
+        } else if (std.mem.eql(u8, args[i], "--interval") and i + 1 < args.len) {
+            i += 1;
+            interval = std.fmt.parseInt(u32, args[i], 10) catch 2;
+        } else if (args[i].len > 0 and args[i][0] != '-') {
+            if (n < MAX_WATCH_COINS) {
+                coins_buf[n] = args[i];
+                n += 1;
+            }
+        }
+    }
+    watch_coins = coins_buf;
+    return WatchArgs{ .coins = watch_coins[0..n], .live = live, .interval = interval };
 }
 
 fn parsePrice(args: []const []const u8) ?PriceArgs {

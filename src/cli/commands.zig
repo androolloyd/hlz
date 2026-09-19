@@ -1952,7 +1952,7 @@ pub fn sendAsset(allocator: std.mem.Allocator, w: *Writer, config: Config, a: ar
             const from_label = if (source_dex.len == 0) "perp" else source_dex;
             const to_label = if (dest_dex.len == 0) "perp" else dest_dex;
             try w.print("{s} {s} ({s} \xe2\x86\x92 {s}) \xe2\x86\x92 {s}{s}\n", .{
-                a.amount, a.token, from_label, to_label, dest_str,
+                a.amount,                        a.token, from_label, to_label, dest_str,
                 if (a.agent) " (agent)" else "",
             });
         } else {
@@ -4893,7 +4893,7 @@ fn deploySpotFinalizeEvm(allocator: std.mem.Allocator, w: *Writer, config: Confi
 fn deploySpotEnableToggle(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotEnableQuoteArgs, aligned: bool) !void {
     const label: []const u8 = if (aligned) "enable-aligned" else "enable-quote";
     if (a.dry_run) {
-        try dryRunPrint(w, label, &[_][2][]const u8{ .{ "token", intBuf(a.token) } });
+        try dryRunPrint(w, label, &[_][2][]const u8{.{ "token", intBuf(a.token) }});
         return;
     }
     var client = makeClient(allocator, config);
@@ -4905,7 +4905,7 @@ fn deploySpotEnableToggle(allocator: std.mem.Allocator, w: *Writer, config: Conf
     else
         try client.spotDeployEnableQuoteToken(auth.signer, a.token, nh.next());
     defer result.deinit();
-    try renderDeployResult(w, label, &result, &[_][2][]const u8{ .{ "token", intBuf(a.token) }});
+    try renderDeployResult(w, label, &result, &[_][2][]const u8{.{ "token", intBuf(a.token) }});
 }
 
 fn deploySpotFeeShare(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.DeploySpotFeeShareArgs) !void {
@@ -4948,7 +4948,7 @@ fn deploySpotTokenAction(allocator: std.mem.Allocator, w: *Writer, config: Confi
     var nh = response.NonceHandler.init();
     var result = try client.spotDeployTokenAction(auth.signer, a.variant, a.token, nh.next());
     defer result.deinit();
-    try renderDeployResult(w, a.variant, &result, &[_][2][]const u8{ .{ "token", intBuf(a.token) }});
+    try renderDeployResult(w, a.variant, &result, &[_][2][]const u8{.{ "token", intBuf(a.token) }});
 }
 
 // ── Small dry-run / result helpers for the compact admin commands ──
@@ -5090,7 +5090,7 @@ fn deploySpotGenesis(allocator: std.mem.Allocator, w: *Writer, config: Config, a
         } else {
             try w.styled(Style.bold_yellow, "\xe2\x8a\x98 dry-run");
             try w.print(" genesis token={d} maxSupply={s}{s}\n", .{
-                a.token, a.max_supply,
+                a.token,                                               a.max_supply,
                 if (a.no_hyperliquidity) " no-hyperliquidity" else "",
             });
         }
@@ -5331,4 +5331,147 @@ fn printDeployHelp(w: *Writer) !void {
         \\Subcommands not marked above are wired up in follow-up commits.
         \\
     , .{});
+}
+
+// ---------------------------------------------------------------- watch
+//
+// A watchlist: the mid and 24h change for a chosen set of symbols. Mids come
+// from allMids and the 24h reference from metaAndAssetCtxs' prevDayPx, so one
+// pass covers every requested coin regardless of how many are listed.
+
+const WatchRow = struct {
+    coin: []const u8,
+    mid: f64,
+    change: ?f64,
+    found: bool,
+};
+
+/// Previous-day mark for `coin`, by index into the perp universe.
+fn watchPrevDayPx(mac_val: std.json.Value, coin: []const u8) ?f64 {
+    if (mac_val != .array or mac_val.array.items.len < 2) return null;
+    const meta = mac_val.array.items[0];
+    const ctxs = mac_val.array.items[1];
+    if (ctxs != .array) return null;
+    const universe = json_mod.getArray(meta, "universe") orelse return null;
+    for (universe, 0..) |u, i| {
+        const name = json_mod.getString(u, "name") orelse continue;
+        if (!std.mem.eql(u8, name, coin)) continue;
+        if (i >= ctxs.array.items.len) return null;
+        const s = json_mod.getString(ctxs.array.items[i], "prevDayPx") orelse return null;
+        return std.fmt.parseFloat(f64, s) catch null;
+    }
+    return null;
+}
+
+fn watchCollect(
+    allocator: std.mem.Allocator,
+    config: Config,
+    a: args_mod.WatchArgs,
+    rows: *[args_mod.MAX_WATCH_COINS]WatchRow,
+) !usize {
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+
+    var mids_res = try client.allMids(null);
+    defer mids_res.deinit();
+    const mids_val = try mids_res.json();
+
+    // 24h change is a nicety: if this call fails we still show live prices.
+    var mac_res = client.metaAndAssetCtxs() catch null;
+    defer if (mac_res) |*m| m.deinit();
+    const mac_val: ?std.json.Value = if (mac_res) |*m| (m.json() catch null) else null;
+
+    var n: usize = 0;
+    for (a.coins) |coin| {
+        if (n >= args_mod.MAX_WATCH_COINS) break;
+        const mid_s = json_mod.getString(mids_val, coin) orelse {
+            rows[n] = .{ .coin = coin, .mid = 0, .change = null, .found = false };
+            n += 1;
+            continue;
+        };
+        const mid = std.fmt.parseFloat(f64, mid_s) catch 0;
+        var change: ?f64 = null;
+        if (mac_val) |mv| {
+            if (watchPrevDayPx(mv, coin)) |pd| {
+                if (pd != 0) change = (mid - pd) / pd * 100.0;
+            }
+        }
+        rows[n] = .{ .coin = coin, .mid = mid, .change = change, .found = true };
+        n += 1;
+    }
+    return n;
+}
+
+fn watchRender(w: *Writer, rows: []const WatchRow) !void {
+    if (w.format == .json) {
+        var jbuf: [8192]u8 = undefined;
+        var jlen: usize = 0;
+        jbuf[0] = '[';
+        jlen = 1;
+        for (rows, 0..) |r, i| {
+            if (i > 0) {
+                jbuf[jlen] = ',';
+                jlen += 1;
+            }
+            if (r.change) |c| {
+                jlen += (std.fmt.bufPrint(
+                    jbuf[jlen..],
+                    "{{\"coin\":\"{s}\",\"mid\":{d},\"change24h\":{d:.4}}}",
+                    .{ r.coin, r.mid, c },
+                ) catch return error.Overflow).len;
+            } else {
+                jlen += (std.fmt.bufPrint(
+                    jbuf[jlen..],
+                    "{{\"coin\":\"{s}\",\"mid\":{d},\"change24h\":null}}",
+                    .{ r.coin, r.mid },
+                ) catch return error.Overflow).len;
+            }
+        }
+        jbuf[jlen] = ']';
+        jlen += 1;
+        try w.jsonRaw(jbuf[0..jlen]);
+        return;
+    }
+
+    try w.nl();
+    for (rows) |r| {
+        if (!r.found) {
+            try w.style(Style.muted);
+            try w.print("  {s: <12}{s: >16}", .{ r.coin, "not listed" });
+            try w.style(Style.reset);
+            try w.nl();
+            continue;
+        }
+        try w.style(Style.muted);
+        try w.print("  {s: <12}", .{r.coin});
+        try w.style(Style.white);
+        try w.print("{d: >16.4}", .{r.mid});
+        if (r.change) |c| {
+            // Format sign and number together, then pad, so "+0.06%" and
+            // "-0.18%" line up instead of the sign floating off on its own.
+            var cbuf: [24]u8 = undefined;
+            const cs = std.fmt.bufPrint(&cbuf, "{s}{d:.2}%", .{ if (c >= 0) "+" else "", c }) catch "";
+            try w.style(if (c >= 0) Style.green else Style.red);
+            try w.print("{s: >10}", .{cs});
+        }
+        try w.style(Style.reset);
+        try w.nl();
+    }
+    try w.nl();
+}
+
+pub fn watch(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.WatchArgs) !void {
+    var rows: [args_mod.MAX_WATCH_COINS]WatchRow = undefined;
+
+    if (!a.live) {
+        const n = try watchCollect(allocator, config, a, &rows);
+        return watchRender(w, rows[0..n]);
+    }
+
+    while (true) {
+        const n = watchCollect(allocator, config, a, &rows) catch 0;
+        try w.print("\x1b[H\x1b[2J", .{});
+        try watchRender(w, rows[0..n]);
+        runtime.sleepNs(@as(u64, a.interval) * std.time.ns_per_s) catch {};
+    }
 }

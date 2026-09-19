@@ -100,6 +100,7 @@ pub fn main(init: std.process.Init) !void {
         .markets => commands.markets(allocator, config) catch |e| return exit(&w, "markets", e),
         .leverage => |a| commands.setLeverage(allocator, &w, config, a) catch |e| return exit(&w, "leverage", e),
         .price => |a| commands.price(allocator, &w, config, a) catch |e| return exit(&w, "price", e),
+        .watch => |a| commands.watch(allocator, &w, config, a) catch |e| return exit(&w, "watch", e),
         .portfolio => |a| commands.portfolio(allocator, &w, config, a) catch |e| return exit(&w, "portfolio", e),
         .referral => |a| commands.referralCmd(allocator, &w, config, a) catch |e| return exit(&w, "referral", e),
         .twap => |a| commands.twap(allocator, &w, config, a) catch |e| return exit(&w, "twap", e),
@@ -382,6 +383,7 @@ fn printGlobalHelp(w: *output_mod.Writer) !void {
     try w.styled(Style.bold_white, "TUI\n");
     try w.print(
         \\  trade [COIN]             Trading terminal (candlestick, orderbook)
+        \\  watch [COIN...]          Watchlist: live mids and 24h change
         \\  markets                  Interactive market browser
         \\
         \\
@@ -484,6 +486,21 @@ fn printCommandHelp(w: *output_mod.Writer, topic: args_mod.HelpTopic) !void {
         ,
             \\  hlz keys ls
             \\  hlz keys import market-maker --private-key 0xabc...
+            \\
+        ),
+        .watch => try printCommandDoc(w, "watch", "Watchlist: mids and 24h change for chosen symbols.",
+            \\  hlz watch COIN [COIN...] [--live] [--interval <SECONDS>]
+            \\
+        , "  wl\n\n",
+            \\  Prints one row per symbol with its mid and 24h change.
+            \\  Change is taken from prevDayPx; symbols not listed on the
+            \\  perp universe still show a mid where one exists.
+            \\  --live redraws in place until interrupted.
+            \\
+        ,
+            \\  hlz watch HYPE BTC PAXG
+            \\  hlz watch HYPE --live --interval 5
+            \\  hlz watch HYPE BTC | jq
             \\
         ),
         .mids => try printCommandDoc(w, "mids", "Show all mid prices or a single asset.",
