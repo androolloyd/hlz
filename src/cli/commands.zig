@@ -12,6 +12,7 @@ const types = hlz.hypercore.types;
 const signing = hlz.hypercore.signing;
 const json_mod = hlz.hypercore.json;
 const ws_types = hlz.hypercore.ws;
+const Chart = @import("Chart");
 const WsConnection = ws_types.Connection;
 const Decimal = hlz.math.decimal.Decimal;
 
@@ -5473,5 +5474,125 @@ pub fn watch(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_m
         try w.print("\x1b[H\x1b[2J", .{});
         try watchRender(w, rows[0..n]);
         runtime.sleepNs(@as(u64, a.interval) * std.time.ns_per_s) catch {};
+    }
+}
+
+// ---------------------------------------------------------------- chart
+//
+// One-shot candlestick chart. Reuses the TUI's Chart renderer against a plain
+// Buffer so the CLI and the interactive terminal draw candles identically.
+
+fn chartNowMs() i64 {
+    return runtime.wallMs();
+}
+
+fn chartIntervalMs(iv: []const u8) u64 {
+    if (std.mem.eql(u8, iv, "1m")) return 60_000;
+    if (std.mem.eql(u8, iv, "3m")) return 3 * 60_000;
+    if (std.mem.eql(u8, iv, "5m")) return 5 * 60_000;
+    if (std.mem.eql(u8, iv, "15m")) return 15 * 60_000;
+    if (std.mem.eql(u8, iv, "30m")) return 30 * 60_000;
+    if (std.mem.eql(u8, iv, "1h")) return 60 * 60_000;
+    if (std.mem.eql(u8, iv, "4h")) return 4 * 60 * 60_000;
+    if (std.mem.eql(u8, iv, "1d")) return 24 * 60 * 60_000;
+    return 15 * 60_000;
+}
+
+/// Hyperliquid sends candle fields as strings, timestamps as numbers.
+fn chartNum(v: std.json.Value, key: []const u8) f64 {
+    if (v != .object) return 0;
+    const o = v.object.get(key) orelse return 0;
+    return switch (o) {
+        .string => |s| std.fmt.parseFloat(f64, s) catch 0,
+        .integer => |i| @floatFromInt(i),
+        .float => |fl| fl,
+        else => 0,
+    };
+}
+
+fn chartFetch(
+    allocator: std.mem.Allocator,
+    config: Config,
+    a: args_mod.ChartArgs,
+    want: usize,
+    out: *[Chart.MAX_CANDLES]Chart.Candle,
+) !usize {
+    var client = makeClient(allocator, config);
+    defer client.deinit();
+
+    const iv_ms = chartIntervalMs(a.interval);
+    const now: u64 = @intCast(chartNowMs());
+    const span = iv_ms * (@as(u64, @intCast(want)) + 2);
+    const start = if (now > span) now - span else 0;
+
+    var res = try client.candleSnapshot(a.coin, a.interval, start, now);
+    defer res.deinit();
+    const val = try res.json();
+    if (val != .array) return 0;
+
+    var n: usize = 0;
+    for (val.array.items) |item| {
+        if (n >= Chart.MAX_CANDLES) break;
+        out[n] = .{
+            .t = @intFromFloat(chartNum(item, "t")),
+            .o = chartNum(item, "o"),
+            .h = chartNum(item, "h"),
+            .l = chartNum(item, "l"),
+            .c = chartNum(item, "c"),
+            .v = chartNum(item, "v"),
+        };
+        n += 1;
+    }
+    return n;
+}
+
+pub fn chart(allocator: std.mem.Allocator, w: *Writer, config: Config, a: args_mod.ChartArgs) !void {
+    const cols: u16 = if (a.cols > 0) a.cols else 80;
+    const rows: u16 = if (a.rows > 0) a.rows else 22;
+
+    var candles: [Chart.MAX_CANDLES]Chart.Candle = undefined;
+
+    if (w.format == .json) {
+        const n = try chartFetch(allocator, config, a, cols, &candles);
+        var jbuf: [65536]u8 = undefined;
+        var jlen: usize = 0;
+        jbuf[0] = '[';
+        jlen = 1;
+        for (candles[0..n], 0..) |c, i| {
+            if (i > 0) {
+                jbuf[jlen] = ',';
+                jlen += 1;
+            }
+            jlen += (std.fmt.bufPrint(
+                jbuf[jlen..],
+                "{{\"t\":{d},\"o\":{d},\"h\":{d},\"l\":{d},\"c\":{d},\"v\":{d}}}",
+                .{ c.t, c.o, c.h, c.l, c.c, c.v },
+            ) catch return error.Overflow).len;
+        }
+        jbuf[jlen] = ']';
+        jlen += 1;
+        try w.jsonRaw(jbuf[0..jlen]);
+        return;
+    }
+
+    while (true) {
+        const n = try chartFetch(allocator, config, a, cols, &candles);
+        if (n == 0) return error.NotFound;
+        const live = candles[n - 1].c;
+
+        var buf = try BufMod.init(allocator, cols, rows);
+        defer buf.deinit();
+        var prev = try BufMod.init(allocator, cols, rows);
+        defer prev.deinit();
+        buf.clear();
+
+        Chart.render(&buf, candles[0..n], .{ .x = 0, .y = 0, .w = cols, .h = rows }, live);
+
+        if (a.live) try w.print("\x1b[H\x1b[2J", .{});
+        buf.flush(&prev, runtime.io());
+        try w.nl();
+
+        if (!a.live) return;
+        runtime.sleepNs(@as(u64, a.refresh) * std.time.ns_per_s) catch {};
     }
 }

@@ -101,6 +101,7 @@ pub fn main(init: std.process.Init) !void {
         .leverage => |a| commands.setLeverage(allocator, &w, config, a) catch |e| return exit(&w, "leverage", e),
         .price => |a| commands.price(allocator, &w, config, a) catch |e| return exit(&w, "price", e),
         .watch => |a| commands.watch(allocator, &w, config, a) catch |e| return exit(&w, "watch", e),
+        .chart => |a| commands.chart(allocator, &w, config, a) catch |e| return exit(&w, "chart", e),
         .portfolio => |a| commands.portfolio(allocator, &w, config, a) catch |e| return exit(&w, "portfolio", e),
         .referral => |a| commands.referralCmd(allocator, &w, config, a) catch |e| return exit(&w, "referral", e),
         .twap => |a| commands.twap(allocator, &w, config, a) catch |e| return exit(&w, "twap", e),
@@ -384,6 +385,7 @@ fn printGlobalHelp(w: *output_mod.Writer) !void {
     try w.print(
         \\  trade [COIN]             Trading terminal (candlestick, orderbook)
         \\  watch [COIN...]          Watchlist: live mids and 24h change
+        \\  chart COIN [-i 15m]      Candlestick chart
         \\  markets                  Interactive market browser
         \\
         \\
@@ -486,6 +488,20 @@ fn printCommandHelp(w: *output_mod.Writer, topic: args_mod.HelpTopic) !void {
         ,
             \\  hlz keys ls
             \\  hlz keys import market-maker --private-key 0xabc...
+            \\
+        ),
+        .chart => try printCommandDoc(w, "chart", "Candlestick chart for one symbol.",
+            \\  hlz chart COIN [--interval <IV>] [--cols <N>] [--rows <N>] [--live]
+            \\
+        , "",
+            \\  Intervals: 1m 5m 15m 1h 4h 1d. Defaults to 15m.
+            \\  Size follows the terminal unless --cols/--rows are given.
+            \\  --live refreshes on an interval until interrupted.
+            \\
+        ,
+            \\  hlz chart HYPE
+            \\  hlz chart HYPE -i 15m --live
+            \\  hlz chart BTC --cols 60 --rows 20
             \\
         ),
         .watch => try printCommandDoc(w, "watch", "Watchlist: mids and 24h change for chosen symbols.",
